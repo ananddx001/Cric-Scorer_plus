@@ -1,0 +1,134 @@
+<script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row => row.some(filledCell));
+
+                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+                var headerRowIndex = filteredData.findIndex((row, index) =>
+                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                );
+                // Fallback
+                if (headerRowIndex === -1 || headerRowIndex > 25) {
+                  headerRowIndex = 0;
+                }
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+        </script><!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cricket Scorer - Player Selection</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="common.js"></script>
+    <script>
+        "use strict";
+
+        function loadPlayerSelectionData() {
+            const savedGlobalSetup = localStorage.getItem('globalSetup');
+            if (savedGlobalSetup) {
+                globalSetup = JSON.parse(savedGlobalSetup);
+                document.getElementById('numPlayers').value = globalSetup.numPlayers;
+                updatePlayerInputs();
+                for (let i = 0; i < globalSetup.players.length; i++) {
+                    const playerInput = document.getElementById(`player${i}`);
+                    if (playerInput) {
+                        playerInput.value = globalSetup.players[i];
+                    }
+                }
+            }
+        }
+
+        function updatePlayerInputs() {
+            const numPlayers = parseInt(document.getElementById('numPlayers').value) || 11;
+            if (numPlayers < 1 || numPlayers > 11) {
+                alert('Number of players must be between 1 and 11.');
+                document.getElementById('numPlayers').value = 11;
+                return;
+            }
+            globalSetup.numPlayers = numPlayers;
+            const playersList = document.getElementById('playersList');
+            playersList.innerHTML = '';
+            for (let i = 0; i < numPlayers * 2; i++) {
+                const playerName = globalSetup.players[i] || `Player ${i + 1}`;
+                const input = document.createElement('input');
+                input.type = 'text';
+                input.id = `player${i}`;
+                input.placeholder = `Player ${i + 1}`;
+                input.value = sanitize(playerName);
+                input.className = 'w-full p-2 border rounded';
+                input.addEventListener('input', savePersistedData);
+                playersList.appendChild(input);
+            }
+            savePersistedData();
+        }
+
+        function proceedToMatchDetails() {
+            globalSetup.players = [];
+            const numPlayers = globalSetup.numPlayers;
+            for (let i = 0; i < numPlayers * 2; i++) {
+                const playerInput = document.getElementById(`player${i}`);
+                const playerName = playerInput ? sanitize(playerInput.value) || `Player ${i + 1}` : `Player ${i + 1}`;
+                globalSetup.players.push(playerName);
+            }
+            if (globalSetup.players.length < numPlayers * 2) {
+                alert(`Please enter at least ${numPlayers * 2} player names.`);
+                return;
+            }
+            savePersistedData();
+            window.location.href = 'match-details.html';
+        }
+
+        window.onload = function() {
+            loadPlayerSelectionData();
+            updatePlayerInputs();
+            document.getElementById('backButton').disabled = true;
+        };
+    </script>
+</head>
+<body class="bg-gray-100 font-sans">
+    <div class="container mx-auto p-4 max-w-4xl">
+        <div class="bg-white p-4 rounded-lg shadow mb-6">
+            <div class="flex justify-between mb-4">
+                <button id="backButton" class="bg-gray-500 text-white p-2 rounded hover:bg-gray-600" disabled>Back</button>
+                <button onclick="proceedToMatchDetails()" class="bg-blue-600 text-white p-2 rounded hover:bg-blue-700">Next</button>
+            </div>
+            <h1 class="text-2xl font-bold text-center mb-4">Player Selection</h1>
+            <div class="grid grid-cols-1 gap-4">
+                <div>
+                    <label class="block text-sm font-medium">Number of Players per Team</label>
+                    <input id="numPlayers" type="number" min="1" max="11" value="11" class="w-full p-2 border rounded" onchange="updatePlayerInputs()">
+                </div>
+            </div>
+            <div class="mt-4">
+                <h3 class="text-lg font-semibold">Players</h3>
+                <div id="playersList" class="grid grid-cols-1 gap-2 mt-2"></div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
