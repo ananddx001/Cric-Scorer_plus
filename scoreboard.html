@@ -37,7 +37,47 @@
         }
         return gk_fileData[filename] || "";
         }
-        </script><!DOCTYPE html>
+        </script><script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row => row.some(filledCell));
+
+                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+                var headerRowIndex = filteredData.findIndex((row, index) =>
+                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                );
+                // Fallback
+                if (headerRowIndex === -1 || headerRowIndex > 25) {
+                  headerRowIndex = 0;
+                }
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+</script>
+<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -49,6 +89,7 @@
         "use strict";
 
         let currentExtraType = '';
+        let matchCompleted = false;
 
         function loadScoreboardData() {
             const savedGlobalSetup = localStorage.getItem('globalSetup');
@@ -83,6 +124,7 @@
         }
 
         function selectBattingTeam(teamNumber) {
+            if (matchCompleted) return;
             match.battingTeam = teamNumber === 1 ? match.team1 : match.team2;
             match.bowlingTeam = teamNumber === 1 ? match.team2 : match.team1;
             match.currentBatsmen = [match.battingTeam.players[0]];
@@ -114,9 +156,11 @@
                     batsmanSelect.innerHTML += `<option value="${index}" ${index === match.currentBatsmanIndex ? 'selected' : ''}>${sanitize(player.name)} (${player.runs}, ${player.balls} balls, ${player.status})</option>`;
                 }
             });
+            batsmanSelect.disabled = matchCompleted;
         }
 
         function changeBatsman() {
+            if (matchCompleted) return;
             const batsmanIndex = parseInt(document.getElementById('currentBatsman').value);
             if (!isNaN(batsmanIndex)) {
                 const selectedPlayer = match.battingTeam.players[batsmanIndex];
@@ -143,6 +187,7 @@
         }
 
         function changeBowler() {
+            if (matchCompleted) return;
             const bowlerIndex = parseInt(document.getElementById('currentBowler').value);
             if (!isNaN(bowlerIndex)) {
                 match.currentBowler = match.bowlingTeam.players[bowlerIndex];
@@ -154,10 +199,11 @@
 
         function updateUndoButton() {
             const undoButton = document.getElementById('undoButton');
-            undoButton.disabled = undoStack.length === 0;
+            undoButton.disabled = matchCompleted || undoStack.length === 0;
         }
 
         function showWicketModal() {
+            if (matchCompleted) return;
             if (!match.currentBowler) {
                 alert('Please select a bowler!');
                 return;
@@ -196,6 +242,7 @@
         }
 
         function confirmWicket() {
+            if (matchCompleted) return;
             const dismissalType = document.getElementById('dismissalType').value;
             const fielderIndex = parseInt(document.getElementById('fielder').value);
             const runs = parseInt(document.getElementById('wicketRuns').value);
@@ -213,6 +260,7 @@
         }
 
         function showExtraModal(type) {
+            if (matchCompleted) return;
             if (!match.currentBowler) {
                 alert('Please select a bowler!');
                 return;
@@ -234,12 +282,14 @@
         }
 
         function confirmExtra() {
+            if (matchCompleted) return;
             const runs = parseInt(document.getElementById('extraRuns').value);
             addExtra(currentExtraType, runs);
             closeExtraModal();
         }
 
         function addRuns(runs) {
+            if (matchCompleted) return;
             if (!match.currentBowler) {
                 alert('Please select a bowler!');
                 return;
@@ -318,6 +368,7 @@
         }
 
         function addWicket(dismissalDetails) {
+            if (matchCompleted) return;
             const team = match.battingTeam;
             const batsman = match.currentBatsmen[match.currentBatsmanIndex];
             const prevBalls = team.balls;
@@ -403,6 +454,7 @@
         }
 
         function addExtra(type, additionalRuns) {
+            if (matchCompleted) return;
             const team = match.battingTeam;
             const batsman = match.currentBatsmen[match.currentBatsmanIndex];
             const extraRuns = 1;
@@ -456,6 +508,7 @@
         }
 
         function undoLastAction() {
+            if (matchCompleted) return;
             if (undoStack.length === 0) return;
             const action = undoStack.pop();
             const team = match.battingTeam;
@@ -534,6 +587,7 @@
         }
 
         function incrementBall() {
+            if (matchCompleted) return;
             const team = match.battingTeam;
             team.balls += 1;
             if (match.currentBowler) {
@@ -697,9 +751,19 @@
                     `;
                 }
             });
+            // Disable scoring controls if match is completed
+            const scoringControls = document.querySelectorAll('#controls button:not(#nextButton):not(#backButton), #currentBatsman, #currentBowler');
+            scoringControls.forEach(control => {
+                control.disabled = matchCompleted;
+                if (control.tagName === 'BUTTON') {
+                    control.classList.toggle('opacity-50', matchCompleted);
+                    control.classList.toggle('cursor-not-allowed', matchCompleted);
+                }
+            });
         }
 
         function checkInningsEnd() {
+            if (matchCompleted) return;
             const team = match.battingTeam;
             if (!team) return;
             if (team.wickets >= match.battingTeam.players.length || team.overs >= match.maxOvers) {
@@ -710,6 +774,7 @@
         }
 
         function endInnings() {
+            if (matchCompleted) return;
             if (match.currentInnings === 1) {
                 match.target = match.battingTeam.runs + 1;
                 const newBattingTeam = match.bowlingTeam;
@@ -743,6 +808,8 @@
         }
 
         function endMatch() {
+            if (matchCompleted) return;
+            matchCompleted = true;
             let result = '';
             if (match.team2.runs > match.team1.runs) {
                 result = `${sanitize(match.team2.name)} wins by ${match.battingTeam.players.length - match.team2.wickets} wickets!`;
@@ -820,6 +887,7 @@
                 return teamCopy;
             };
 
+            console.log('Before saving matchDetails:', JSON.parse(JSON.stringify(matchDetails)));
             matchDetails[match.matchNumber] = {
                 summary: summary,
                 teams: `${sanitize(match.team1.name)} vs ${sanitize(match.team2.name)}`,
@@ -834,6 +902,8 @@
                 });
             }
             savePersistedData();
+            console.log('After saving matchDetails:', JSON.parse(JSON.stringify(matchDetails)));
+            console.log('matchHistory:', JSON.parse(JSON.stringify(matchHistory)));
             undoStack = [];
             updateUndoButton();
             document.getElementById('scoreboard').classList.add('hidden');
@@ -841,10 +911,11 @@
             document.getElementById('ballLog').classList.add('hidden');
             document.getElementById('summary').classList.remove('hidden');
             document.getElementById('summaryText').innerHTML = summary;
-            document.getElementById('nextButton').disabled = true;
+            updateScoreboard(); // Disable scoring controls
         }
 
         function resetForNewMatch() {
+            console.log('Resetting for new match, current matchDetails:', JSON.parse(JSON.stringify(matchDetails)));
             match = {
                 team1: { name: '', runs: 0, wickets: 0, overs: 0, balls: 0, players: [] },
                 team2: { name: '', runs: 0, wickets: 0, overs: 0, balls: 0, players: [] },
@@ -861,18 +932,23 @@
                 matchNumber: null
             };
             undoStack = [];
+            matchCompleted = false;
             updateUndoButton();
             document.getElementById('summary').classList.add('hidden');
-            document.getElementById('matchDetails').classList.remove('hidden');
-            document.getElementById('matchNumberInput').value = '';
             savePersistedData();
+            console.log('Navigating to match-details.html with match:', JSON.parse(JSON.stringify(match)));
             window.location.href = 'match-details.html';
         }
 
         window.onload = function() {
             loadScoreboardData();
-            document.getElementById('backButton').onclick = () => window.location.href = 'match-details.html';
-            document.getElementById('nextButton').disabled = true;
+            document.getElementById('backButton').onclick = () => {
+                savePersistedData();
+                window.location.href = 'match-details.html';
+            };
+            document.getElementById('nextButton').onclick = () => {
+                resetForNewMatch();
+            };
         };
     </script>
 </head>
@@ -881,7 +957,7 @@
         <div class="bg-white p-4 rounded-lg shadow mb-6">
             <div class="flex justify-between mb-4">
                 <button id="backButton" class="bg-gray-500 text-white p-2 rounded hover:bg-gray-600">Back</button>
-                <button id="nextButton" class="bg-blue-600 text-white p-2 rounded hover:bg-blue-700" disabled>Next</button>
+                <button id="nextButton" class="bg-blue-600 text-white p-2 rounded hover:bg-blue-700">New Match</button>
             </div>
             <h1 class="text-2xl font-bold text-center mb-4">Scoreboard</h1>
 
@@ -1040,5 +1116,6 @@
             </div>
         </div>
     </div>
+<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'9346211cba8d32e3',t:'MTc0NTMzNTQ3OS4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script>
 </body>
 </html>
